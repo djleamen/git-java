@@ -571,14 +571,6 @@ public class Main {
       }
       
       byte[] data = packData.toByteArray();
-      
-      // Debug: print first 100 bytes if data is small
-      if (data.length < 200) {
-        System.err.println("DEBUG: Received " + data.length + " bytes");
-        System.err.println("DEBUG: First bytes (hex): " + 
-          bytesToHex(Arrays.copyOfRange(data, 0, Math.min(data.length, 50))));
-      }
-      
       return parseSideBandData(data);
     }
   }
@@ -691,10 +683,6 @@ public class Main {
         (packfile == null ? "null" : packfile.length) + " bytes)");
     }
     
-    System.err.println("DEBUG: Unpacking packfile of " + packfile.length + " bytes");
-    System.err.println("DEBUG: First 20 bytes (hex): " + 
-      bytesToHex(Arrays.copyOfRange(packfile, 0, Math.min(packfile.length, 20))));
-    
     // Wrap in PushbackInputStream to allow pushing back unused bytes after inflation
     PushbackInputStream in = new PushbackInputStream(new ByteArrayInputStream(packfile), 8192);
     
@@ -750,8 +738,6 @@ public class Main {
       size |= ((long)(b & 0x7F)) << shift;
       shift += 7;
     }
-    
-    System.err.println("DEBUG: Reading pack object type=" + type + " size=" + size);
     
     PackObject obj = new PackObject();
     obj.type = type;
@@ -818,7 +804,6 @@ public class Main {
         byte[] unusedBytes = new byte[remaining];
         System.arraycopy(inputBuffer, lastInputSize - remaining, unusedBytes, 0, remaining);
         ((PushbackInputStream) in).unread(unusedBytes);
-        System.err.println("DEBUG: Pushed back " + remaining + " unused bytes");
       }
       
     } catch (java.util.zip.DataFormatException e) {
