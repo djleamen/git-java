@@ -526,8 +526,8 @@ public class Main {
     // Build request
     ByteArrayOutputStream requestBody = new ByteArrayOutputStream();
     
-    // Want line
-    String wantLine = "want " + wantSha + " multi_ack_detailed side-band-64k thin-pack ofs-delta agent=git/\n";
+    // Want line - use simpler capabilities
+    String wantLine = "want " + wantSha + "\n";
     writePktLine(requestBody, wantLine);
     writePktLine(requestBody, null); // flush-pkt
     
@@ -537,7 +537,22 @@ public class Main {
       out.write(requestBody.toByteArray());
     }
     
-    try (InputStream in = conn.getInputStream()) {
+    // Check response code
+    int responseCode = conn.getResponseCode();
+    if (responseCode != 200) {
+      throw new IOException("HTTP error: " + responseCode + " " + conn.getResponseMessage());
+    }
+    
+    InputStream responseStream;
+    try {
+      responseStream = conn.getInputStream();
+    } catch (IOException e) {
+      // Try error stream
+      responseStream = conn.getErrorStream();
+      if (responseStream == null) throw e;
+    }
+    
+    try (InputStream in = responseStream) {
       ByteArrayOutputStream packData = new ByteArrayOutputStream();
       byte[] buffer = new byte[8192];
       int read;
@@ -546,7 +561,16 @@ public class Main {
         packData.write(buffer, 0, read);
       }
       
-      return parseSideBandData(packData.toByteArray());
+      byte[] data = packData.toByteArray();
+      
+      // Debug: print first 100 bytes if data is small
+      if (data.length < 200) {
+        System.err.println("DEBUG: Received " + data.length + " bytes");
+        System.err.println("DEBUG: First bytes (hex): " + 
+          bytesToHex(Arrays.copyOfRange(data, 0, Math.min(data.length, 50))));
+      }
+      
+      return parseSideBandData(data);
     }
   }
   
@@ -565,6 +589,16 @@ public class Main {
   
   // Parse side-band data
   static byte[] parseSideBandData(byte[] data) throws IOException {
+    // First, try to find PACK signature directly in the data
+    for (int i = 0; i < data.length - 3; i++) {
+      if (data[i] == 'P' && data[i+1] == 'A' && 
+          data[i+2] == 'C' && data[i+3] == 'K') {
+        // Found PACK signature, return from here to end
+        return Arrays.copyOfRange(data, i, data.length);
+      }
+    }
+    
+    // If no PACK signature found, try parsing pkt-line format
     ByteArrayOutputStream packfile = new ByteArrayOutputStream();
     int pos = 0;
     
@@ -585,13 +619,6 @@ public class Main {
       try {
         length = Integer.parseInt(lengthHex, 16);
       } catch (NumberFormatException e) {
-        // Invalid pkt-line, try to find PACK signature from here
-        for (int i = pos; i < data.length - 3; i++) {
-          if (data[i] == 'P' && data[i+1] == 'A' && 
-              data[i+2] == 'C' && data[i+3] == 'K') {
-            return Arrays.copyOfRange(data, i, data.length);
-          }
-        }
         pos++;
         continue;
       }
@@ -604,13 +631,6 @@ public class Main {
       
       // Check if we have enough data
       if (pos + length > data.length) {
-        // Not enough data, try to find PACK signature from here
-        for (int i = pos; i < data.length - 3; i++) {
-          if (data[i] == 'P' && data[i+1] == 'A' && 
-              data[i+2] == 'C' && data[i+3] == 'K') {
-            return Arrays.copyOfRange(data, i, data.length);
-          }
-        }
         break;
       }
       
@@ -627,27 +647,14 @@ public class Main {
             packfile.write(content, 1, content.length - 1);
           }
         } else if (firstByte == 2 || firstByte == 3) {
-          // Band 2 (progress) and 3 (errors) - ignore
-          // String msg = new String(content, 1, content.length - 1, StandardCharsets.UTF_8);
-          // System.err.println("Server: " + msg);
+          // Band 2 (progress) and 3 (errors) - log to stderr
+          String msg = new String(content, 1, content.length - 1, StandardCharsets.UTF_8);
+          System.err.println("Server: " + msg);
         } else {
           // Not a side-band packet, might be NAK or other protocol message
           String msg = new String(content, StandardCharsets.UTF_8).trim();
-          // Skip NAK and similar messages
           if (!msg.equals("NAK") && !msg.startsWith("acknowledgments")) {
-            // Unknown content, might contain packfile directly
-            for (int i = 0; i < content.length - 3; i++) {
-              if (content[i] == 'P' && content[i+1] == 'A' && 
-                  content[i+2] == 'C' && content[i+3] == 'K') {
-                packfile.write(content, i, content.length - i);
-                // Continue reading remaining data
-                pos += length;
-                if (pos < data.length) {
-                  packfile.write(data, pos, data.length - pos);
-                }
-                return packfile.toByteArray();
-              }
-            }
+            System.err.println("Protocol message: " + msg);
           }
         }
       }
@@ -662,15 +669,10 @@ public class Main {
       return result;
     }
     
-    // Last resort: scan entire data for PACK signature
-    for (int i = 0; i < data.length - 3; i++) {
-      if (data[i] == 'P' && data[i+1] == 'A' && 
-          data[i+2] == 'C' && data[i+3] == 'K') {
-        return Arrays.copyOfRange(data, i, data.length);
-      }
-    }
-    
-    throw new IOException("No packfile data found in response (" + data.length + " bytes)");
+    // No packfile found - provide detailed error
+    String preview = new String(data, 0, Math.min(data.length, 100), StandardCharsets.UTF_8);
+    throw new IOException("No packfile data found in response (" + data.length + 
+      " bytes). Preview: " + preview.replaceAll("[^\\x20-\\x7E]", "."));
   }
   
   // Unpack packfile and store objects
