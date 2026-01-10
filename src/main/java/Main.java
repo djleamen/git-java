@@ -568,18 +568,6 @@ public class Main {
     ByteArrayOutputStream packfile = new ByteArrayOutputStream();
     int pos = 0;
     
-    // Scan for PACK signature as a fallback
-    for (int i = 0; i < data.length - 4; i++) {
-      if (data[i] == 'P' && data[i+1] == 'A' && 
-          data[i+2] == 'C' && data[i+3] == 'K') {
-        // Found PACK signature, return everything from here
-        packfile.write(data, i, data.length - i);
-        return packfile.toByteArray();
-      }
-    }
-    
-    // If no PACK found, try parsing as pkt-line with side-band
-    pos = 0;
     while (pos < data.length) {
       if (pos + 4 > data.length) break;
       
@@ -597,28 +585,50 @@ public class Main {
       try {
         length = Integer.parseInt(lengthHex, 16);
       } catch (NumberFormatException e) {
-        // Invalid pkt-line format
-        pos++;
-        continue;
-      }
-      
-      if (length < 4 || pos + length > data.length) {
-        pos++;
-        continue;
-      }
-      
-      // Check for side-band data (length > 4 means there's content)
-      if (length > 4) {
-        int band = data[pos + 4] & 0xFF;
-        
-        if (band == 1) {
-          // Band 1: packfile data
-          int dataLength = length - 5;
-          if (dataLength > 0) {
-            packfile.write(data, pos + 5, dataLength);
+        // Invalid pkt-line, try to find PACK signature from here
+        for (int i = pos; i < data.length - 3; i++) {
+          if (data[i] == 'P' && data[i+1] == 'A' && 
+              data[i+2] == 'C' && data[i+3] == 'K') {
+            packfile.write(data, i, data.length - i);
+            return packfile.toByteArray();
           }
-        } else if (band == 2 || band == 3) {
-          // Band 2 (progress) and 3 (errors)
+        }
+        pos++;
+        continue;
+      }
+      
+      // Validate length
+      if (length < 5 || pos + length > data.length) {
+        pos += 4;
+        continue;
+      }
+      
+      // Read the content after length prefix
+      byte[] content = Arrays.copyOfRange(data, pos + 4, pos + length);
+      
+      // Check if first byte is a band indicator (1, 2, or 3)
+      int firstByte = content[0] & 0xFF;
+      
+      if (firstByte == 1) {
+        // Band 1: packfile data
+        packfile.write(content, 1, content.length - 1);
+      } else if (firstByte == 2 || firstByte == 3) {
+        // Band 2 (progress) and 3 (errors) - ignore
+        // String msg = new String(content, 1, content.length - 1, StandardCharsets.UTF_8);
+        // System.err.println("Server: " + msg);
+      } else {
+        // Not a side-band packet, might be NAK or other protocol message
+        String msg = new String(content, StandardCharsets.UTF_8).trim();
+        // Skip NAK and similar messages
+        if (!msg.equals("NAK")) {
+          // Unknown content, might contain packfile
+          for (int i = 0; i < content.length - 3; i++) {
+            if (content[i] == 'P' && content[i+1] == 'A' && 
+                content[i+2] == 'C' && content[i+3] == 'K') {
+              packfile.write(content, i, content.length - i);
+              return packfile.toByteArray();
+            }
+          }
         }
       }
       
@@ -627,9 +637,15 @@ public class Main {
     
     byte[] result = packfile.toByteArray();
     
-    // Debug: print size
     if (result.length == 0) {
       System.err.println("Warning: No packfile data extracted from " + data.length + " bytes");
+      // Last resort: scan entire data for PACK signature
+      for (int i = 0; i < data.length - 3; i++) {
+        if (data[i] == 'P' && data[i+1] == 'A' && 
+            data[i+2] == 'C' && data[i+3] == 'K') {
+          return Arrays.copyOfRange(data, i, data.length);
+        }
+      }
     }
     
     return result;
