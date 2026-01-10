@@ -11,6 +11,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PushbackInputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -694,7 +695,8 @@ public class Main {
     System.err.println("DEBUG: First 20 bytes (hex): " + 
       bytesToHex(Arrays.copyOfRange(packfile, 0, Math.min(packfile.length, 20))));
     
-    ByteArrayInputStream in = new ByteArrayInputStream(packfile);
+    // Wrap in PushbackInputStream to allow pushing back unused bytes after inflation
+    PushbackInputStream in = new PushbackInputStream(new ByteArrayInputStream(packfile), 8192);
     
     byte[] header = new byte[12];
     if (in.read(header) != 12) {
@@ -785,19 +787,44 @@ public class Main {
   
   // Read compressed data
   static byte[] readCompressedData(InputStream in) throws IOException {
-    // Use InflaterInputStream with raw deflate (no zlib header) for packfile objects
-    ByteArrayOutputStream out = new ByteArrayOutputStream();
-    
-    // Create Inflater with nowrap=true for raw deflate format (without zlib wrapper)
+    // We need to manually handle inflation to avoid consuming extra bytes from the stream
     java.util.zip.Inflater inflater = new java.util.zip.Inflater();
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    byte[] inputBuffer = new byte[1024];
+    byte[] outputBuffer = new byte[8192];
+    int lastInputSize = 0;
     
-    try (InflaterInputStream iis = new InflaterInputStream(in, inflater)) {
-      byte[] buffer = new byte[8192];
-      int read;
-      
-      while ((read = iis.read(buffer)) != -1) {
-        out.write(buffer, 0, read);
+    try {
+      while (!inflater.finished()) {
+        if (inflater.needsInput()) {
+          int read = in.read(inputBuffer);
+          if (read == -1) {
+            break;
+          }
+          inflater.setInput(inputBuffer, 0, read);
+          lastInputSize = read;
+        }
+        
+        int decompressed = inflater.inflate(outputBuffer);
+        if (decompressed > 0) {
+          out.write(outputBuffer, 0, decompressed);
+        }
       }
+      
+      // Push back unused bytes to the stream (if PushbackInputStream)
+      int remaining = inflater.getRemaining();
+      if (remaining > 0 && in instanceof PushbackInputStream) {
+        // The remaining bytes are at the end of the last input we gave to the inflater
+        byte[] unusedBytes = new byte[remaining];
+        System.arraycopy(inputBuffer, lastInputSize - remaining, unusedBytes, 0, remaining);
+        ((PushbackInputStream) in).unread(unusedBytes);
+        System.err.println("DEBUG: Pushed back " + remaining + " unused bytes");
+      }
+      
+    } catch (java.util.zip.DataFormatException e) {
+      throw new IOException("Failed to decompress data", e);
+    } finally {
+      inflater.end();
     }
     
     return out.toByteArray();
