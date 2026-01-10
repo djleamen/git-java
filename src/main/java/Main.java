@@ -1,3 +1,7 @@
+/**
+ * 
+ */
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -14,6 +18,7 @@ public class Main {
     final String command = args[0];
     
     switch (command) {
+      // git init
       case "init" -> {
         final File root = new File(".git");
         new File(root, "objects").mkdirs();
@@ -28,6 +33,7 @@ public class Main {
           throw new RuntimeException(e);
         }
       }
+      // cat-file -p <hash>
       case "cat-file" -> {
         if (args.length < 3 || !args[1].equals("-p")) {
           System.out.println("Usage: cat-file -p <hash>");
@@ -65,6 +71,7 @@ public class Main {
           throw new RuntimeException(e);
         }
       }
+      // hash-object -w <file>
       case "hash-object" -> {
         if (args.length < 3 || !args[1].equals("-w")) {
           System.out.println("Usage: hash-object -w <file>");
@@ -114,6 +121,61 @@ public class Main {
           System.out.println(hash);
           
         } catch (IOException | NoSuchAlgorithmException e) {
+          throw new RuntimeException(e);
+        }
+      }
+      // ls-tree --name-only <tree_sha>
+      case "ls-tree" -> {
+        if (args.length < 3 || !args[1].equals("--name-only")) {
+          System.out.println("Usage: ls-tree --name-only <tree_sha>");
+          return;
+        }
+        
+        String hash = args[2];
+        String dirName = hash.substring(0, 2);
+        String fileName = hash.substring(2);
+        File objectFile = new File(".git/objects/" + dirName + "/" + fileName);
+        
+        try (FileInputStream fis = new FileInputStream(objectFile);
+             InflaterInputStream iis = new InflaterInputStream(fis)) {
+          
+          byte[] decompressed = iis.readAllBytes();
+          
+          // Find null byte that separates header from content
+          int nullIndex = -1;
+          for (int i = 0; i < decompressed.length; i++) {
+            if (decompressed[i] == 0) {
+              nullIndex = i;
+              break;
+            }
+          }
+          
+          if (nullIndex == -1) {
+            throw new RuntimeException("Invalid tree object format");
+          }
+          
+          // Parse tree entries
+          int pos = nullIndex + 1;
+          while (pos < decompressed.length) {
+            int nameStart = pos;
+            while (nameStart < decompressed.length && decompressed[nameStart] != ' ') {
+              nameStart++;
+            }
+            nameStart++;
+            
+            int nameEnd = nameStart;
+            while (nameEnd < decompressed.length && decompressed[nameEnd] != 0) {
+              nameEnd++;
+            }
+            
+            String name = new String(Arrays.copyOfRange(decompressed, nameStart, nameEnd));
+            System.out.println(name);
+            
+            // Skip the 20-byte SHA-1 hash
+            pos = nameEnd + 1 + 20;
+          }
+          
+        } catch (IOException e) {
           throw new RuntimeException(e);
         }
       }
