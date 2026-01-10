@@ -577,21 +577,42 @@ public class Main {
         continue;
       }
       
-      int length = Integer.parseInt(lengthHex, 16);
-      if (length == 0 || pos + length > data.length) break;
+      int length;
+      try {
+        length = Integer.parseInt(lengthHex, 16);
+      } catch (NumberFormatException e) {
+        // Not a valid pkt-line, might be raw packfile data
+        // Look for PACK signature
+        if (pos + 4 <= data.length && 
+            data[pos] == 'P' && data[pos+1] == 'A' && 
+            data[pos+2] == 'C' && data[pos+3] == 'K') {
+          // Found raw packfile, return everything from here
+          packfile.write(data, pos, data.length - pos);
+          break;
+        }
+        pos++;
+        continue;
+      }
       
-      // Read band and data
-      if (pos + 5 <= data.length) {
-        int band = data[pos + 4];
+      if (length < 4 || pos + length > data.length) break;
+      
+      // Check if this line contains a band indicator
+      if (length > 4 && pos + 5 <= data.length) {
+        int band = data[pos + 4] & 0xFF;
         
         if (band == 1) {
           // Band 1: packfile data
           int dataLength = length - 5;
-          if (pos + 5 + dataLength <= data.length) {
+          if (dataLength > 0 && pos + 5 + dataLength <= data.length) {
             packfile.write(data, pos + 5, dataLength);
           }
+        } else if (band == 2 || band == 3) {
+          // Band 2 (progress) and 3 (errors)
+          System.err.println("Server: " + new String(data, pos + 5, length - 5, StandardCharsets.UTF_8));
+        } else {
+          // No valid band, might be a text line like "NAK"
+          // Skip it
         }
-        // Band 2 (progress) and 3 (errors) are ignored
       }
       
       pos += length;
