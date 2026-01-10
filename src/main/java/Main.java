@@ -9,7 +9,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
@@ -179,7 +182,150 @@ public class Main {
           throw new RuntimeException(e);
         }
       }
+      // write-tree
+      case "write-tree" -> {
+        try {
+          String hash = writeTree(new File("."));
+          System.out.println(hash);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
       default -> System.out.println("Unknown command: " + command);
     }
+  }
+  
+  // Helper class - tree entry
+  static class TreeEntry implements Comparable<TreeEntry> {
+    String mode;
+    String name;
+    String hash;
+    
+    TreeEntry(String mode, String name, String hash) {
+      this.mode = mode;
+      this.name = name;
+      this.hash = hash;
+    }
+    
+    @Override
+    public int compareTo(TreeEntry other) {
+      return this.name.compareTo(other.name);
+    }
+  }
+  
+  // Create a blob object from a file and return its hash
+  static String createBlob(File file) throws IOException, NoSuchAlgorithmException {
+    byte[] fileContent = Files.readAllBytes(file.toPath());
+    
+    String header = "blob " + fileContent.length + "\0";
+    byte[] headerBytes = header.getBytes();
+    
+    byte[] blobData = new byte[headerBytes.length + fileContent.length];
+    System.arraycopy(headerBytes, 0, blobData, 0, headerBytes.length);
+    System.arraycopy(fileContent, 0, blobData, headerBytes.length, fileContent.length);
+    
+    MessageDigest digest = MessageDigest.getInstance("SHA-1");
+    byte[] hashBytes = digest.digest(blobData);
+    
+    StringBuilder hashHex = new StringBuilder();
+    for (byte b : hashBytes) {
+      hashHex.append(String.format("%02x", b));
+    }
+    String hash = hashHex.toString();
+    
+    String dirName = hash.substring(0, 2);
+    String fileName = hash.substring(2);
+    File objectDir = new File(".git/objects/" + dirName);
+    objectDir.mkdirs();
+    
+    File objectFile = new File(objectDir, fileName);
+    try (FileOutputStream fos = new FileOutputStream(objectFile);
+         DeflaterOutputStream dos = new DeflaterOutputStream(fos)) {
+      dos.write(blobData);
+    }
+    
+    return hash;
+  }
+  
+  // Recursively write a tree object and return its hash
+  static String writeTree(File directory) throws IOException, NoSuchAlgorithmException {
+    List<TreeEntry> entries = new ArrayList<>();
+    
+    File[] files = directory.listFiles();
+    if (files == null) {
+      throw new RuntimeException("Cannot read directory: " + directory);
+    }
+    
+    for (File file : files) {
+      // Skip .git directory
+      if (file.getName().equals(".git")) {
+        continue;
+      }
+      
+      if (file.isFile()) {
+        String hash = createBlob(file);
+        String mode = file.canExecute() ? "100755" : "100644";
+        entries.add(new TreeEntry(mode, file.getName(), hash));
+      } else if (file.isDirectory()) {
+        String hash = writeTree(file);
+        entries.add(new TreeEntry("40000", file.getName(), hash));
+      }
+    }
+    
+    // Sort entries alphabetically
+    Collections.sort(entries);
+    
+    List<byte[]> contentParts = new ArrayList<>();
+    int totalSize = 0;
+    
+    for (TreeEntry entry : entries) {
+      // Format: <mode> <name>\0<20_byte_sha>
+      String entryPrefix = entry.mode + " " + entry.name + "\0";
+      byte[] entryPrefixBytes = entryPrefix.getBytes();
+      
+      byte[] hashBytes = new byte[20];
+      for (int i = 0; i < 20; i++) {
+        hashBytes[i] = (byte) Integer.parseInt(entry.hash.substring(i * 2, i * 2 + 2), 16);
+      }
+      
+      contentParts.add(entryPrefixBytes);
+      contentParts.add(hashBytes);
+      totalSize += entryPrefixBytes.length + hashBytes.length;
+    }
+    
+    String header = "tree " + totalSize + "\0";
+    byte[] headerBytes = header.getBytes();
+    
+    byte[] treeData = new byte[headerBytes.length + totalSize];
+    int pos = 0;
+    System.arraycopy(headerBytes, 0, treeData, pos, headerBytes.length);
+    pos += headerBytes.length;
+    
+    for (byte[] part : contentParts) {
+      System.arraycopy(part, 0, treeData, pos, part.length);
+      pos += part.length;
+    }
+    
+    MessageDigest digest = MessageDigest.getInstance("SHA-1");
+    byte[] hashBytes = digest.digest(treeData);
+    
+    StringBuilder hashHex = new StringBuilder();
+    for (byte b : hashBytes) {
+      hashHex.append(String.format("%02x", b));
+    }
+    String hash = hashHex.toString();
+    
+    String dirName = hash.substring(0, 2);
+    String fileName = hash.substring(2);
+    File objectDir = new File(".git/objects/" + dirName);
+    objectDir.mkdirs();
+    
+    File objectFile = new File(objectDir, fileName);
+    try (FileOutputStream fos = new FileOutputStream(objectFile);
+         DeflaterOutputStream dos = new DeflaterOutputStream(fos)) {
+      dos.write(treeData);
+    }
+    
+    return hash;
   }
 }
