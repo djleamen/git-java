@@ -772,32 +772,17 @@ public class Main {
   
   // Read compressed data
   static byte[] readCompressedData(InputStream in) throws IOException {
-    // We need to use an Inflater directly because we're reading from the middle of a stream
-    // and InflaterInputStream expects to manage the entire stream
-    java.util.zip.Inflater inflater = new java.util.zip.Inflater();
+    // Use InflaterInputStream to decompress the zlib-compressed data
+    // The Inflater will stop automatically when it's done
     ByteArrayOutputStream out = new ByteArrayOutputStream();
-    byte[] buffer = new byte[8192];
-    byte[] inputBuffer = new byte[8192];
     
-    try {
-      while (!inflater.finished()) {
-        if (inflater.needsInput()) {
-          int read = in.read(inputBuffer);
-          if (read == -1) {
-            break;
-          }
-          inflater.setInput(inputBuffer, 0, read);
-        }
-        
-        int decompressed = inflater.inflate(buffer);
-        if (decompressed > 0) {
-          out.write(buffer, 0, decompressed);
-        }
+    try (InflaterInputStream iis = new InflaterInputStream(in, new java.util.zip.Inflater())) {
+      byte[] buffer = new byte[8192];
+      int read;
+      
+      while ((read = iis.read(buffer)) != -1) {
+        out.write(buffer, 0, read);
       }
-    } catch (java.util.zip.DataFormatException e) {
-      throw new IOException("Failed to decompress data", e);
-    } finally {
-      inflater.end();
     }
     
     return out.toByteArray();
