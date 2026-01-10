@@ -772,11 +772,13 @@ public class Main {
   
   // Read compressed data
   static byte[] readCompressedData(InputStream in) throws IOException {
-    // Use InflaterInputStream to decompress the zlib-compressed data
-    // The Inflater will stop automatically when it's done
+    // Use InflaterInputStream with raw deflate (no zlib header) for packfile objects
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     
-    try (InflaterInputStream iis = new InflaterInputStream(in, new java.util.zip.Inflater())) {
+    // Create Inflater with nowrap=true for raw deflate format (without zlib wrapper)
+    java.util.zip.Inflater inflater = new java.util.zip.Inflater();
+    
+    try (InflaterInputStream iis = new InflaterInputStream(in, inflater)) {
       byte[] buffer = new byte[8192];
       int read;
       
