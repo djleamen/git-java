@@ -568,57 +568,71 @@ public class Main {
     ByteArrayOutputStream packfile = new ByteArrayOutputStream();
     int pos = 0;
     
+    // Scan for PACK signature as a fallback
+    for (int i = 0; i < data.length - 4; i++) {
+      if (data[i] == 'P' && data[i+1] == 'A' && 
+          data[i+2] == 'C' && data[i+3] == 'K') {
+        // Found PACK signature, return everything from here
+        packfile.write(data, i, data.length - i);
+        return packfile.toByteArray();
+      }
+    }
+    
+    // If no PACK found, try parsing as pkt-line with side-band
+    pos = 0;
     while (pos < data.length) {
       if (pos + 4 > data.length) break;
       
+      // Read pkt-line length
       String lengthHex = new String(data, pos, 4, StandardCharsets.UTF_8);
+      
+      // Check for flush-pkt
       if (lengthHex.equals("0000")) {
         pos += 4;
         continue;
       }
       
+      // Parse length
       int length;
       try {
         length = Integer.parseInt(lengthHex, 16);
       } catch (NumberFormatException e) {
-        // Not a valid pkt-line, might be raw packfile data
-        // Look for PACK signature
-        if (pos + 4 <= data.length && 
-            data[pos] == 'P' && data[pos+1] == 'A' && 
-            data[pos+2] == 'C' && data[pos+3] == 'K') {
-          // Found raw packfile, return everything from here
-          packfile.write(data, pos, data.length - pos);
-          break;
-        }
+        // Invalid pkt-line format
         pos++;
         continue;
       }
       
-      if (length < 4 || pos + length > data.length) break;
+      if (length < 4 || pos + length > data.length) {
+        pos++;
+        continue;
+      }
       
-      // Check if this line contains a band indicator
-      if (length > 4 && pos + 5 <= data.length) {
+      // Check for side-band data (length > 4 means there's content)
+      if (length > 4) {
         int band = data[pos + 4] & 0xFF;
         
         if (band == 1) {
           // Band 1: packfile data
           int dataLength = length - 5;
-          if (dataLength > 0 && pos + 5 + dataLength <= data.length) {
+          if (dataLength > 0) {
             packfile.write(data, pos + 5, dataLength);
           }
         } else if (band == 2 || band == 3) {
           // Band 2 (progress) and 3 (errors)
-          System.err.println("Server: " + new String(data, pos + 5, length - 5, StandardCharsets.UTF_8));
-        } else {
-          // No valid band, might be a text line like "NAK"
-          // Skip it
         }
       }
       
       pos += length;
     }
     
-    return packfile.toByteArray();
+    byte[] result = packfile.toByteArray();
+    
+    // Debug: print size
+    if (result.length == 0) {
+      System.err.println("Warning: No packfile data extracted from " + data.length + " bytes");
+    }
+    
+    return result;
   }
   
   // Unpack packfile and store objects
