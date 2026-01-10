@@ -690,6 +690,10 @@ public class Main {
         (packfile == null ? "null" : packfile.length) + " bytes)");
     }
     
+    System.err.println("DEBUG: Unpacking packfile of " + packfile.length + " bytes");
+    System.err.println("DEBUG: First 20 bytes (hex): " + 
+      bytesToHex(Arrays.copyOfRange(packfile, 0, Math.min(packfile.length, 20))));
+    
     ByteArrayInputStream in = new ByteArrayInputStream(packfile);
     
     byte[] header = new byte[12];
@@ -728,15 +732,24 @@ public class Main {
   static PackObject readPackObject(InputStream in) throws IOException {
     // Read type and size
     int b = in.read();
+    if (b == -1) {
+      throw new IOException("Unexpected end of packfile");
+    }
+    
     int type = (b >> 4) & 0x07;
     long size = b & 0x0F;
     int shift = 4;
     
     while ((b & 0x80) != 0) {
       b = in.read();
+      if (b == -1) {
+        throw new IOException("Unexpected end of packfile while reading object size");
+      }
       size |= ((long)(b & 0x7F)) << shift;
       shift += 7;
     }
+    
+    System.err.println("DEBUG: Reading pack object type=" + type + " size=" + size);
     
     PackObject obj = new PackObject();
     obj.type = type;
