@@ -772,15 +772,32 @@ public class Main {
   
   // Read compressed data
   static byte[] readCompressedData(InputStream in) throws IOException {
-    // Create an inflater input stream
-    InflaterInputStream iis = new InflaterInputStream(in);
+    // We need to use an Inflater directly because we're reading from the middle of a stream
+    // and InflaterInputStream expects to manage the entire stream
+    java.util.zip.Inflater inflater = new java.util.zip.Inflater();
     ByteArrayOutputStream out = new ByteArrayOutputStream();
-    
     byte[] buffer = new byte[8192];
-    int read;
+    byte[] inputBuffer = new byte[8192];
     
-    while ((read = iis.read(buffer)) != -1) {
-      out.write(buffer, 0, read);
+    try {
+      while (!inflater.finished()) {
+        if (inflater.needsInput()) {
+          int read = in.read(inputBuffer);
+          if (read == -1) {
+            break;
+          }
+          inflater.setInput(inputBuffer, 0, read);
+        }
+        
+        int decompressed = inflater.inflate(buffer);
+        if (decompressed > 0) {
+          out.write(buffer, 0, decompressed);
+        }
+      }
+    } catch (java.util.zip.DataFormatException e) {
+      throw new IOException("Failed to decompress data", e);
+    } finally {
+      inflater.end();
     }
     
     return out.toByteArray();
