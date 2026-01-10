@@ -434,15 +434,31 @@ public class Main {
     String discoverUrl = repoUrl + "/info/refs?service=git-upload-pack";
     Map<String, String> refs = discoverRefs(discoverUrl);
     
-    // Find HEAD ref
-    String headRef = refs.get("HEAD");
-    if (headRef == null) {
-      // Fallback to master or main
-      headRef = refs.getOrDefault("refs/heads/main", refs.get("refs/heads/master"));
+    // Find the actual commit SHA to fetch
+    // Look for HEAD symref first, or fallback to main/master branch
+    String headRef = null;
+    String targetBranch = null;
+    
+    // Try to find a valid branch ref
+    if (refs.containsKey("refs/heads/main")) {
+      headRef = refs.get("refs/heads/main");
+      targetBranch = "refs/heads/main";
+    } else if (refs.containsKey("refs/heads/master")) {
+      headRef = refs.get("refs/heads/master");
+      targetBranch = "refs/heads/master";
+    } else {
+      // Find any head ref
+      for (String ref : refs.keySet()) {
+        if (ref.startsWith("refs/heads/")) {
+          headRef = refs.get(ref);
+          targetBranch = ref;
+          break;
+        }
+      }
     }
     
     if (headRef == null) {
-      throw new RuntimeException("No HEAD ref found");
+      throw new RuntimeException("No branch refs found in repository");
     }
     
     String uploadPackUrl = repoUrl + "/git-upload-pack";
@@ -452,15 +468,7 @@ public class Main {
     
     // Set HEAD
     File headFile = new File(gitDir, "HEAD");
-    // Determine which branch HEAD points to
-    String headBranch = "refs/heads/main";
-    for (String ref : refs.keySet()) {
-      if (refs.get(ref).equals(headRef) && ref.startsWith("refs/heads/")) {
-        headBranch = ref;
-        break;
-      }
-    }
-    Files.write(headFile.toPath(), ("ref: " + headBranch + "\n").getBytes());
+    Files.write(headFile.toPath(), ("ref: " + targetBranch + "\n").getBytes());
     
     // Write refs
     for (Map.Entry<String, String> entry : refs.entrySet()) {
