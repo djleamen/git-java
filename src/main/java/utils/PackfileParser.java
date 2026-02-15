@@ -81,11 +81,26 @@ public class PackfileParser {
       }
     }
     
-    // Resolve all objects (recursive resolution handles dependencies)
+    // Resolve all objects (may need multiple passes for delta chains)
     Map<String, byte[]> objectData = new HashMap<>();
-    for (PackObject obj : objects) {
-      resolveObject(obj, objects, objectData, gitDir, objectsByHash);
-    }
+    int unresolvedCount;
+    do {
+      unresolvedCount = 0;
+      for (PackObject obj : objects) {
+        if (!obj.isResolved()) {
+          try {
+            resolveObject(obj, objects, objectData, gitDir, objectsByHash);
+          } catch (RuntimeException e) {
+            // Base not yet available - will try again in next pass
+            if (e.getMessage() != null && e.getMessage().startsWith("Base object not found")) {
+              unresolvedCount++;
+            } else {
+              throw e;
+            }
+          }
+        }
+      }
+    } while (unresolvedCount > 0);
   }
   
   /**
@@ -210,17 +225,10 @@ public class PackfileParser {
         // REF_DELTA - load base by hash
         String baseHash = obj.getBaseHash();
         
-        // Check if base is in objectData (already resolved)
+        // Check if base is in objectData (already resolved in this unpack)
         baseData = objectData.get(baseHash);
         
-        // Check if base is in the packfile (may need recursive resolution)
-        if (baseData == null && objectsByHash.containsKey(baseHash)) {
-          PackObject baseObj = objectsByHash.get(baseHash);
-          resolveObject(baseObj, allObjects, objectData, gitDir, objectsByHash);
-          baseData = objectData.get(baseHash);
-        }
-        
-        // Check if base is on disk
+        // Check if base is on disk  
         if (baseData == null) {
           baseData = GitObjectUtils.loadObjectFromDisk(gitDir, baseHash);
         }
