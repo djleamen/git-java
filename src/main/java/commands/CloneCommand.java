@@ -6,6 +6,8 @@ import utils.PackfileParser;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 public class CloneCommand implements GitCommand {
@@ -36,6 +38,7 @@ public class CloneCommand implements GitCommand {
     
     // Initialize git repository
     File gitDir = new File(dir, ".git");
+    Path gitDirPath = gitDir.toPath().normalize().toAbsolutePath();
     new File(gitDir, "objects").mkdirs();
     new File(gitDir, "refs/heads").mkdirs();
     
@@ -85,9 +88,16 @@ public class CloneCommand implements GitCommand {
       String sha = entry.getValue();
       
       if (ref.startsWith("refs/heads/") || ref.startsWith("refs/tags/")) {
-        File refFile = new File(gitDir, ref);
-        refFile.getParentFile().mkdirs();
-        Files.write(refFile.toPath(), (sha + "\n").getBytes());
+        Path refPath = gitDirPath.resolve(ref).normalize().toAbsolutePath();
+        if (!refPath.startsWith(gitDirPath)) {
+          // Skip refs that would escape the .git directory
+          continue;
+        }
+        Path parent = refPath.getParent();
+        if (parent != null) {
+          Files.createDirectories(parent);
+        }
+        Files.write(refPath, (sha + "\n").getBytes());
       }
     }
     
