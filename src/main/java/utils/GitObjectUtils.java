@@ -31,6 +31,25 @@ public class GitObjectUtils {
   }
   
   /**
+   * Validate that the given hash is a 40-character hexadecimal SHA-1 string.
+   */
+  private static boolean isValidHexSha(String hash) {
+    if (hash == null || hash.length() != 40) {
+      return false;
+    }
+    for (int i = 0; i < hash.length(); i++) {
+      char c = hash.charAt(i);
+      boolean isDigit = c >= '0' && c <= '9';
+      boolean isLowerHex = c >= 'a' && c <= 'f';
+      boolean isUpperHex = c >= 'A' && c <= 'F';
+      if (!isDigit && !isLowerHex && !isUpperHex) {
+        return false;
+      }
+    }
+    return true;
+  }
+  
+  /**
    * Create a blob object from a file and return its hash
    */
   public static String createBlob(File file) throws IOException, NoSuchAlgorithmException {
@@ -144,6 +163,9 @@ public class GitObjectUtils {
    * Load object from disk
    */
   public static byte[] loadObjectFromDisk(File gitDir, String hash) {
+    if (!isValidHexSha(hash)) {
+      return null;
+    }
     try {
       String dirName = hash.substring(0, 2);
       String fileName = hash.substring(2);
@@ -190,6 +212,9 @@ public class GitObjectUtils {
    * Checkout commit to working directory
    */
   public static void checkoutCommit(File workDir, File gitDir, String commitSha) throws Exception {
+    if (!isValidHexSha(commitSha)) {
+      throw new RuntimeException("Invalid commit SHA: " + commitSha);
+    }
     // Read commit object
     byte[] commitData = loadObjectFromDisk(gitDir, commitSha);
     if (commitData == null) {
