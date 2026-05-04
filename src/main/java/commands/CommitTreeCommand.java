@@ -9,11 +9,24 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.zip.DeflaterOutputStream;
 
+/**
+ * Implements the {@code commit-tree} command.
+ *
+ * <p>Creates a new git commit object from a tree SHA, a parent commit SHA, and a commit
+ * message, then stores it DEFLATE-compressed in the {@code .git/objects} store and prints
+ * its hash to standard output.
+ */
 public class CommitTreeCommand implements GitCommand {
-  
-  /** 
-   * @param args
-   * @throws GitCommandException
+
+  /**
+   * Creates a commit object and prints its SHA-1 hash to standard output.
+   *
+   * <p>Expects arguments in the form:
+   * {@code commit-tree <tree_sha> -p <commit_sha> -m <message>}.
+   *
+   * @param args command-line arguments passed from the git dispatcher
+   * @throws GitCommandException if required arguments are missing or malformed, or if
+   *                             writing the commit object to disk fails
    */
   @Override
   public void execute(String[] args) throws GitCommandException {
@@ -27,12 +40,10 @@ public class CommitTreeCommand implements GitCommand {
     String message = args[5];
     
     try {
-      // Build commit content
       StringBuilder content = new StringBuilder();
       content.append("tree ").append(treeSha).append("\n");
       content.append("parent ").append(parentSha).append("\n");
-      
-      // Hardcoded author and committer (for simplicity)
+
       String authorLine = "author John Doe <john@example.com> 1234567890 +0000\n";
       String committerLine = "committer John Doe <john@example.com> 1234567890 +0000\n";
       content.append(authorLine);
@@ -59,7 +70,6 @@ public class CommitTreeCommand implements GitCommand {
       File objectDir = new File(".git/objects/" + dirName);
       objectDir.mkdirs();
       
-      // Write compressed commit to file
       File objectFile = new File(objectDir, fileName);
       try (FileOutputStream fos = new FileOutputStream(objectFile);
            DeflaterOutputStream dos = new DeflaterOutputStream(fos)) {

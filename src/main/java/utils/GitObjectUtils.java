@@ -16,12 +16,22 @@ import java.util.List;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
+/**
+ * Utility class for creating, reading, and materialising git objects stored in the
+ * {@code .git/objects} loose-object format.
+ *
+ * <p>All objects are stored as DEFLATE-compressed files under a two-character prefix
+ * directory derived from their SHA-1 hash.
+ */
 public class GitObjectUtils {
   
   private GitObjectUtils() {}
   
   /**
-   * Convert bytes to hex string
+   * Converts a byte array to its lowercase hexadecimal string representation.
+   *
+   * @param bytes the byte array to convert; must not be {@code null}
+   * @return a lowercase hex string with exactly {@code bytes.length * 2} characters
    */
   public static String bytesToHex(byte[] bytes) {
     StringBuilder sb = new StringBuilder();
@@ -32,7 +42,15 @@ public class GitObjectUtils {
   }
   
   /**
-   * Create a blob object from a file and return its hash
+   * Creates a git blob object from a file and stores it in the {@code .git/objects} store.
+   *
+   * <p>The file content is wrapped in a {@code blob <size>\0} header, SHA-1 hashed,
+   * DEFLATE-compressed, and saved under {@code .git/objects/<prefix>/<suffix>}.
+   *
+   * @param file the file to store as a blob
+   * @return the 40-character hex SHA-1 hash of the resulting blob object
+   * @throws IOException              if the file cannot be read or the object cannot be written
+   * @throws NoSuchAlgorithmException if the SHA-1 algorithm is unavailable
    */
   public static String createBlob(File file) throws IOException, NoSuchAlgorithmException {
     byte[] fileContent = Files.readAllBytes(file.toPath());
@@ -63,7 +81,15 @@ public class GitObjectUtils {
   }
   
   /**
-   * Recursively write a tree object and return its hash
+   * Recursively creates git tree objects for a directory and stores them in the object store.
+   *
+   * <p>Skips the {@code .git} directory. Entries are sorted alphabetically before being
+   * written. Blobs are created for regular files and sub-trees for sub-directories.
+   *
+   * @param directory the directory to write as a tree
+   * @return the 40-character hex SHA-1 hash of the root tree object
+   * @throws IOException              if a file or directory cannot be read or written
+   * @throws NoSuchAlgorithmException if the SHA-1 algorithm is unavailable
    */
   public static String writeTree(File directory) throws IOException, NoSuchAlgorithmException {
     List<TreeEntry> entries = new ArrayList<>();
@@ -74,7 +100,6 @@ public class GitObjectUtils {
     }
     
     for (File file : files) {
-      // Skip .git directory
       if (file.getName().equals(".git")) {
         continue;
       }
@@ -89,14 +114,12 @@ public class GitObjectUtils {
       }
     }
     
-    // Sort entries alphabetically
     Collections.sort(entries);
-    
+
     List<byte[]> contentParts = new ArrayList<>();
     int totalSize = 0;
-    
+
     for (TreeEntry entry : entries) {
-      // Format: <mode> <name>\0<20_byte_sha>
       String entryPrefix = entry.getMode() + " " + entry.getName() + "\0";
       byte[] entryPrefixBytes = entryPrefix.getBytes();
       
@@ -142,7 +165,12 @@ public class GitObjectUtils {
   }
   
   /**
-   * Load object from disk
+   * Loads the raw content (post-header) of a git object from the loose-object store.
+   *
+   * @param gitDir the {@code .git} directory of the repository
+   * @param hash   the 40-character hex SHA-1 hash of the object
+   * @return the raw content bytes with the object header stripped, or an empty array if
+   *         the object is not found or cannot be read
    */
   public static byte[] loadObjectFromDisk(File gitDir, String hash) {
     try {
@@ -156,8 +184,7 @@ public class GitObjectUtils {
            InflaterInputStream iis = new InflaterInputStream(fis)) {
         
         byte[] decompressed = iis.readAllBytes();
-        
-        // Find null byte that separates header from content
+
         int nullIndex = -1;
         for (int i = 0; i < decompressed.length; i++) {
           if (decompressed[i] == 0) {
@@ -176,7 +203,14 @@ public class GitObjectUtils {
   }
   
   /**
-   * Get object type from object data
+   * Extracts the object type string from a fully-qualified git object (header + content).
+   *
+   * <p>The object header has the form {@code <type> <size>\0}; this method returns the
+   * {@code <type>} portion.
+   *
+   * @param fullObjectWithHeader the raw bytes of the git object including its header
+   * @return the type string (e.g., {@code "blob"}, {@code "tree"}, {@code "commit"}),
+   *         or {@code "blob"} as a fallback if no space character is found
    */
   public static String getObjectType(byte[] fullObjectWithHeader) {
     for (int i = 0; i < fullObjectWithHeader.length; i++) {
@@ -188,90 +222,102 @@ public class GitObjectUtils {
   }
   
   /**
-   * Checkout commit to working directory
+   * Checks out the working-tree state described by a commit object.
+   *
+   * <p>Reads the commit, extracts the tree SHA from the {@code tree} header line, and
+   * delegates to {@link #checkoutTree(File, File, String, String)} to materialise the
+   * tree contents.
+   *
+   * @param workDir   the root directory of the working tree
+   * @param gitDir    the {@code .git} directory of the repository
+   * @param commitSha the 40-character hex SHA-1 hash of the commit to check out
+   * @throws Exception if the commit is not found, its tree reference is missing, or
+   *                   any file cannot be written
    */
   public static void checkoutCommit(File workDir, File gitDir, String commitSha) throws Exception {
-    // Read commit object
     byte[] commitData = loadObjectFromDisk(gitDir, commitSha);
     if (commitData.length == 0) {
       throw new IOException("Commit not found: " + commitSha);
     }
-    
-    // Parse commit to find tree
+
     String commitContent = new String(commitData);
     String[] lines = commitContent.split("\n");
     String treeSha = null;
-    
+
     for (String line : lines) {
       if (line.startsWith("tree ")) {
         treeSha = line.substring(5).trim();
         break;
       }
     }
-    
+
     if (treeSha == null) {
       throw new IOException("No tree found in commit");
     }
-    
-    // Checkout tree
+
     checkoutTree(workDir, gitDir, treeSha, "");
   }
   
   /**
-   * Recursively checkout tree
+   * Recursively materialises the contents of a git tree object into the working directory.
+   *
+   * <p>For each entry in the tree: directories (mode {@code 40000}) are created and
+   * recursed into; all other entries are written as regular files via
+   * {@link #writeFileEntry(File, String, File, String)}.
+   *
+   * @param workDir the root working-tree directory
+   * @param gitDir  the {@code .git} directory of the repository
+   * @param treeSha the 40-character hex SHA-1 hash of the tree object to materialise
+   * @param prefix  relative path prefix to prepend when constructing file paths
+   * @throws Exception if the tree is not found or any file cannot be written
    */
   public static void checkoutTree(File workDir, File gitDir, String treeSha, String prefix) throws Exception {
     byte[] treeData = loadObjectFromDisk(gitDir, treeSha);
     if (treeData.length == 0) {
       throw new IOException("Tree not found: " + treeSha);
     }
-    
-    // Parse tree entries
+
     int pos = 0;
     while (pos < treeData.length) {
-      // Read mode
       int spacePos = pos;
       while (spacePos < treeData.length && treeData[spacePos] != ' ') {
         spacePos++;
       }
       String mode = new String(treeData, pos, spacePos - pos);
       pos = spacePos + 1;
-      
-      // Read name
+
       int nullPos = pos;
       while (nullPos < treeData.length && treeData[nullPos] != 0) {
         nullPos++;
       }
       String name = new String(treeData, pos, nullPos - pos);
       pos = nullPos + 1;
-      
-      // Read hash
+
       if (pos + 20 > treeData.length) break;
       byte[] hashBytes = Arrays.copyOfRange(treeData, pos, pos + 20);
       String hash = bytesToHex(hashBytes);
       pos += 20;
-      
-      // Create file or directory
+
       String path = prefix + name;
       File file = new File(workDir, path);
-      
+
       if (mode.equals("40000")) {
-        // Directory
         file.mkdir();
         checkoutTree(workDir, gitDir, hash, path + "/");
       } else {
-        // File
         writeFileEntry(file, mode, gitDir, hash);
       }
     }
   }
 
-  /** 
-   * @param file
-   * @param mode
-   * @param gitDir
-   * @param hash
-   * @throws IOException
+  /**
+   * Writes a single blob object to a file and optionally sets its executable permission.
+   *
+   * @param file   the target file to create or overwrite
+   * @param mode   the git mode string ({@code "100755"} sets the executable bit)
+   * @param gitDir the {@code .git} directory of the repository
+   * @param hash   the 40-character hex SHA-1 hash of the blob object
+   * @throws IOException if the blob cannot be loaded or the file cannot be written
    */
   private static void writeFileEntry(File file, String mode, File gitDir, String hash) throws IOException {
     byte[] fileData = loadObjectFromDisk(gitDir, hash);

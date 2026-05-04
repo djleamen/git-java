@@ -5,11 +5,24 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.zip.InflaterInputStream;
 
+/**
+ * Implements the {@code ls-tree --name-only} command.
+ *
+ * <p>Reads a tree object from the {@code .git/objects} store and prints the name of each
+ * entry to standard output, one per line.
+ */
 public class LsTreeCommand implements GitCommand {
-  
-  /** 
-   * @param args
-   * @throws GitCommandException
+
+  /**
+   * Lists the names of all entries in a git tree object.
+   *
+   * <p>Expects {@code args[1]} to be {@code --name-only} and {@code args[2]} to be the
+   * 40-character hex SHA-1 hash of the tree object. Each entry name is printed on its
+   * own line to standard output.
+   *
+   * @param args command-line arguments passed from the git dispatcher
+   * @throws GitCommandException if the tree object cannot be found, its format is invalid,
+   *                             or an I/O error occurs while reading the object
    */
   @Override
   public void execute(String[] args) throws GitCommandException {
@@ -27,8 +40,7 @@ public class LsTreeCommand implements GitCommand {
          InflaterInputStream iis = new InflaterInputStream(fis)) {
       
       byte[] decompressed = iis.readAllBytes();
-      
-      // Find null byte that separates header from content
+
       int nullIndex = -1;
       for (int i = 0; i < decompressed.length; i++) {
         if (decompressed[i] == 0) {
@@ -36,22 +48,19 @@ public class LsTreeCommand implements GitCommand {
           break;
         }
       }
-      
+
       if (nullIndex == -1) {
         throw new GitCommandException("Invalid object format");
       }
-      
-      // Parse tree entries
+
       int pos = nullIndex + 1;
       while (pos < decompressed.length) {
-        // Read mode
         int spacePos = pos;
         while (spacePos < decompressed.length && decompressed[spacePos] != ' ') {
           spacePos++;
         }
         pos = spacePos + 1;
-        
-        // Read name
+
         int nullPos = pos;
         while (nullPos < decompressed.length && decompressed[nullPos] != 0) {
           nullPos++;
@@ -59,8 +68,7 @@ public class LsTreeCommand implements GitCommand {
         String name = new String(decompressed, pos, nullPos - pos);
         System.out.println(name);
         pos = nullPos + 1;
-        
-        // Skip 20-byte hash
+
         pos += 20;
       }
       

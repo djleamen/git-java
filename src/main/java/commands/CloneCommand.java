@@ -8,11 +8,24 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.Map;
 
+/**
+ * Implements the {@code clone} command.
+ *
+ * <p>Clones a remote git repository into a local directory using the Git Smart HTTP
+ * protocol. Fetches refs, downloads a packfile, unpacks objects, and checks out the
+ * HEAD commit.
+ */
 public class CloneCommand implements GitCommand {
-  
-  /** 
-   * @param args
-   * @throws GitCommandException
+
+  /**
+   * Clones a remote repository to a local directory.
+   *
+   * <p>Expects {@code args[1]} to be the remote URL and {@code args[2]} to be the target
+   * directory path. The target directory must not already exist.
+   *
+   * @param args command-line arguments passed from the git dispatcher
+   * @throws GitCommandException if cloning fails due to an invalid URL, a network error,
+   *                             a missing target branch, or an I/O error
    */
   @Override
   public void execute(String[] args) throws GitCommandException {
@@ -33,33 +46,34 @@ public class CloneCommand implements GitCommand {
     }
   }
   
-  /** 
-   * @param repoUrl
-   * @param targetDir
-   * @throws Exception
+  /**
+   * Performs the full clone workflow: creates the directory, initialises the git
+   * repository, discovers remote refs, fetches the packfile, resolves objects, writes
+   * refs, and checks out the HEAD commit.
+   *
+   * <p>Prefers {@code refs/heads/main}, then {@code refs/heads/master}, then the first
+   * available branch found in the ref advertisement.
+   *
+   * @param repoUrl   the remote repository URL (HTTP/HTTPS)
+   * @param targetDir path to the local directory to create and populate
+   * @throws Exception if any step of the clone operation fails
    */
   private void cloneRepository(String repoUrl, String targetDir) throws Exception {
-    // Create target directory
     File dir = new File(targetDir);
     if (!dir.mkdir()) {
       throw new GitCommandException("Failed to create directory: " + targetDir);
     }
-    
-    // Initialize git repository
+
     File gitDir = new File(dir, ".git");
     new File(gitDir, "objects").mkdirs();
     new File(gitDir, "refs/heads").mkdirs();
-    
-    // Discover refs from remote
+
     String discoverUrl = repoUrl + "/info/refs?service=git-upload-pack";
     Map<String, String> refs = NetworkUtils.discoverRefs(discoverUrl);
-    
-    // Find the actual commit SHA to fetch
-    // Look for HEAD symref first, or fallback to main/master branch
+
     String headRef = null;
     String targetBranch = null;
-    
-    // Try to find a valid branch ref
+
     if (refs.containsKey("refs/heads/main")) {
       headRef = refs.get("refs/heads/main");
       targetBranch = "refs/heads/main";
@@ -67,7 +81,6 @@ public class CloneCommand implements GitCommand {
       headRef = refs.get("refs/heads/master");
       targetBranch = "refs/heads/master";
     } else {
-      // Find any head ref
       for (Map.Entry<String, String> entry : refs.entrySet()) {
         if (entry.getKey().startsWith("refs/heads/")) {
           headRef = entry.getValue();
@@ -76,33 +89,30 @@ public class CloneCommand implements GitCommand {
         }
       }
     }
-    
+
     if (headRef == null) {
       throw new GitCommandException("No branch refs found in repository");
     }
-    
+
     String uploadPackUrl = repoUrl + "/git-upload-pack";
     byte[] packfile = NetworkUtils.fetchPackfile(uploadPackUrl, headRef);
-    
+
     PackfileParser.unpackPackfile(packfile, gitDir);
-    
-    // Set HEAD
+
     File headFile = new File(gitDir, "HEAD");
     Files.write(headFile.toPath(), ("ref: " + targetBranch + "\n").getBytes());
-    
-    // Write refs
+
     for (Map.Entry<String, String> entry : refs.entrySet()) {
       String ref = entry.getKey();
       String sha = entry.getValue();
-      
+
       if (ref.startsWith("refs/heads/") || ref.startsWith("refs/tags/")) {
         File refFile = new File(gitDir, ref);
         refFile.getParentFile().mkdirs();
         Files.write(refFile.toPath(), (sha + "\n").getBytes());
       }
     }
-    
-    // Checkout HEAD commit
+
     GitObjectUtils.checkoutCommit(dir, gitDir, headRef);
   }
 }

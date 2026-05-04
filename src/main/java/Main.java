@@ -1,17 +1,24 @@
-/**
- *  Git - A simple Git implementation in Java
- *  From CodeCrafters.io build-your-own-git (Java)
- *  
- *  Modular implementation with separate command classes
- */
-
 import commands.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+ * Entry point for this Git implementation.
+ *
+ * <p>Parses the first command-line argument to select a {@link commands.GitCommand}
+ * implementation and delegates execution to it. Supported sub-commands: {@code init},
+ * {@code cat-file}, {@code hash-object}, {@code ls-tree}, {@code write-tree},
+ * {@code commit-tree}, {@code clone}.
+ */
 public class Main {
   private static final Logger LOGGER = Logger.getLogger(Main.class.getName());
 
+  /**
+   * Dispatches the git sub-command specified as the first command-line argument.
+   *
+   * @param args command-line arguments where {@code args[0]} is the git sub-command and
+   *             any subsequent elements are command-specific options and operands
+   */
   public static void main(String[] args) {
     if (args.length == 0) {
       LOGGER.warning("Usage: java Main <command> [args...]");
