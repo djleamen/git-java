@@ -17,47 +17,48 @@ import java.util.Map;
 import java.util.zip.DeflaterOutputStream;
 
 public class PackfileParser {
-  
+
+  private PackfileParser() {}
+
   /**
    * Unpack packfile and store objects
    */
   public static void unpackPackfile(byte[] packfile, File gitDir) throws Exception {
     if (packfile == null || packfile.length < 12) {
-      throw new RuntimeException("Invalid packfile: too short (" + 
+      throw new RuntimeException("Invalid packfile: too short (" +
         (packfile == null ? "null" : packfile.length) + " bytes)");
     }
-    
-    // Wrap in PushbackInputStream to allow pushing back unused bytes after inflation
+
     PushbackInputStream in = new PushbackInputStream(new ByteArrayInputStream(packfile), 8192);
-    
+    int objectCount = readPackHeader(in, packfile.length);
+
+    List<PackObject> objects = new ArrayList<>();
+    for (int i = 0; i < objectCount; i++) {
+      objects.add(readPackObject(in));
+    }
+
+    Map<String, PackObject> objectsByHash = new HashMap<>();
+    preComputeNonDeltaHashes(objects, objectsByHash);
+
+    Map<String, byte[]> objectData = new HashMap<>();
+    resolveAllObjectsPasses(objects, objectData, gitDir, objectsByHash);
+  }
+
+  private static int readPackHeader(PushbackInputStream in, int packfileLength) throws IOException {
     byte[] header = new byte[12];
     if (in.read(header) != 12) {
-      throw new RuntimeException("Invalid packfile: header too short (got " + packfile.length + " bytes)");
+      throw new RuntimeException("Invalid packfile: header too short (got " + packfileLength + " bytes)");
     }
-    
     if (header[0] != 'P' || header[1] != 'A' || header[2] != 'C' || header[3] != 'K') {
-      throw new RuntimeException("Invalid packfile signature (expected PACK, got: " + 
+      throw new RuntimeException("Invalid packfile signature (expected PACK, got: " +
         new String(header, 0, 4) + ")");
     }
-    
-    // Read version
-    int version = ((header[4] & 0xFF) << 24) | ((header[5] & 0xFF) << 16) | 
-                  ((header[6] & 0xFF) << 8) | (header[7] & 0xFF);
-    
-    // Read object count
-    int objectCount = ((header[8] & 0xFF) << 24) | ((header[9] & 0xFF) << 16) | 
-                      ((header[10] & 0xFF) << 8) | (header[11] & 0xFF);
-    
-    // Parse objects
-    List<PackObject> objects = new ArrayList<>();
-    Map<String, PackObject> objectsByHash = new HashMap<>();
-    
-    for (int i = 0; i < objectCount; i++) {
-      PackObject obj = readPackObject(in);
-      objects.add(obj);
-    }
-    
-    // Pre-compute hashes for non-delta objects so we can reference them
+    return ((header[8] & 0xFF) << 24) | ((header[9] & 0xFF) << 16) |
+           ((header[10] & 0xFF) << 8) | (header[11] & 0xFF);
+  }
+
+  private static void preComputeNonDeltaHashes(List<PackObject> objects,
+      Map<String, PackObject> objectsByHash) throws Exception {
     for (PackObject obj : objects) {
       if (obj.getType() >= 1 && obj.getType() <= 4) {
         String typeStr = switch (obj.getType()) {
@@ -72,7 +73,6 @@ public class PackfileParser {
         byte[] fullObject = new byte[headerBytes.length + obj.getData().length];
         System.arraycopy(headerBytes, 0, fullObject, 0, headerBytes.length);
         System.arraycopy(obj.getData(), 0, fullObject, headerBytes.length, obj.getData().length);
-        
         MessageDigest digest = MessageDigest.getInstance("SHA-1");
         byte[] hashBytes = digest.digest(fullObject);
         String hash = GitObjectUtils.bytesToHex(hashBytes);
@@ -80,9 +80,11 @@ public class PackfileParser {
         objectsByHash.put(hash, obj);
       }
     }
-    
-    // Resolve all objects (may need multiple passes for delta chains)
-    Map<String, byte[]> objectData = new HashMap<>();
+  }
+
+  private static void resolveAllObjectsPasses(List<PackObject> objects,
+      Map<String, byte[]> objectData, File gitDir,
+      Map<String, PackObject> objectsByHash) throws Exception {
     int unresolvedCount = Integer.MAX_VALUE;
     int newUnresolvedCount;
     do {
@@ -92,7 +94,6 @@ public class PackfileParser {
           try {
             resolveObject(obj, objects, objectData, gitDir, objectsByHash);
           } catch (RuntimeException e) {
-            // Base not yet available - will try again in next pass
             if (e.getMessage() != null && e.getMessage().startsWith("Base object not found")) {
               newUnresolvedCount++;
             } else {
@@ -101,14 +102,13 @@ public class PackfileParser {
           }
         }
       }
-      // Guard against infinite loop: stop if no progress was made
       if (newUnresolvedCount > 0 && newUnresolvedCount >= unresolvedCount) {
         break;
       }
       unresolvedCount = newUnresolvedCount;
     } while (newUnresolvedCount > 0);
   }
-  
+
   /**
    * Read a pack object
    */
