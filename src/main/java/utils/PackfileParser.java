@@ -24,7 +24,7 @@ public class PackfileParser {
   /**
    * Unpack packfile and store objects
    */
-  public static void unpackPackfile(byte[] packfile, File gitDir) throws Exception {
+  public static void unpackPackfile(byte[] packfile, File gitDir) throws IOException {
     if (packfile == null || packfile.length < 12) {
       throw new IOException("Invalid packfile: too short (" +
         (packfile == null ? "null" : packfile.length) + " bytes)");
@@ -303,7 +303,7 @@ public class PackfileParser {
   }
   
   private static void applyCopyCommand(int cmd, byte[] baseData, ByteArrayInputStream in,
-      ByteArrayOutputStream out) throws IOException {
+      ByteArrayOutputStream out) {
     int offset = 0;
     int size = 0;
 
