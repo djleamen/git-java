@@ -22,16 +22,18 @@ public class CloneCommand implements GitCommand {
     
     try {
       cloneRepository(repoUrl, targetDir);
+    } catch (GitCommandException e) {
+      throw e;
     } catch (Exception e) {
-      throw new RuntimeException(e);
+      throw new GitCommandException("Clone failed: " + e.getMessage(), e);
     }
   }
   
-  private void cloneRepository(String repoUrl, String targetDir) throws Exception {
+  private void cloneRepository(String repoUrl, String targetDir) throws GitCommandException, Exception {
     // Create target directory
     File dir = new File(targetDir);
     if (!dir.mkdir()) {
-      throw new RuntimeException("Failed to create directory: " + targetDir);
+      throw new GitCommandException("Failed to create directory: " + targetDir);
     }
     
     // Initialize git repository
@@ -57,17 +59,17 @@ public class CloneCommand implements GitCommand {
       targetBranch = "refs/heads/master";
     } else {
       // Find any head ref
-      for (String ref : refs.keySet()) {
-        if (ref.startsWith("refs/heads/")) {
-          headRef = refs.get(ref);
-          targetBranch = ref;
+      for (Map.Entry<String, String> entry : refs.entrySet()) {
+        if (entry.getKey().startsWith("refs/heads/")) {
+          headRef = entry.getValue();
+          targetBranch = entry.getKey();
           break;
         }
       }
     }
     
     if (headRef == null) {
-      throw new RuntimeException("No branch refs found in repository");
+      throw new GitCommandException("No branch refs found in repository");
     }
     
     String uploadPackUrl = repoUrl + "/git-upload-pack";
