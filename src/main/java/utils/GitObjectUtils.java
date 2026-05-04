@@ -261,14 +261,18 @@ public class GitObjectUtils {
         checkoutTree(workDir, gitDir, hash, path + "/");
       } else {
         // File
-        byte[] fileData = loadObjectFromDisk(gitDir, hash);
-        if (fileData.length > 0) {
-          Files.write(file.toPath(), fileData);
-          if (mode.equals("100755")) {
-            if (!file.setExecutable(true)) {
-              throw new IOException("Failed to set executable permission on: " + file.getPath());
-            }
-          }
+        writeFileEntry(file, mode, gitDir, hash);
+      }
+    }
+  }
+
+  private static void writeFileEntry(File file, String mode, File gitDir, String hash) throws IOException {
+    byte[] fileData = loadObjectFromDisk(gitDir, hash);
+    if (fileData.length > 0) {
+      Files.write(file.toPath(), fileData);
+      if (mode.equals("100755")) {
+        if (!file.setExecutable(true)) {
+          throw new IOException("Failed to set executable permission on: " + file.getPath());
         }
       }
     }
