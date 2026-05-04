@@ -123,16 +123,7 @@ public class NetworkUtils {
    * Parse side-band data
    */
   private static byte[] parseSideBandData(byte[] data) throws IOException {
-    // First, try to find PACK signature directly in the data
-    for (int i = 0; i < data.length - 3; i++) {
-      if (data[i] == 'P' && data[i+1] == 'A' && 
-          data[i+2] == 'C' && data[i+3] == 'K') {
-        // Found PACK signature, return from here to end
-        return java.util.Arrays.copyOfRange(data, i, data.length);
-      }
-    }
-    
-    // If no PACK signature found, try parsing pkt-line format
+    // Try parsing pkt-line sideband format first (handles multi-packet responses correctly)
     ByteArrayOutputStream packfile = new ByteArrayOutputStream();
     int pos = 0;
     
@@ -153,12 +144,12 @@ public class NetworkUtils {
       try {
         length = Integer.parseInt(lengthHex, 16);
       } catch (NumberFormatException e) {
-        pos++;
-        continue;
+        // Not a valid pkt-line (e.g. raw PACK data) - stop pkt-line parsing
+        break;
       }
       
-      // Validate length - must be at least 5 (4 for length + 1 for content)
-      if (length < 5) {
+      // Validate length
+      if (length < 4) {
         pos += 4;
         continue;
       }
@@ -168,26 +159,18 @@ public class NetworkUtils {
         break;
       }
       
-      // Read the content after length prefix (length includes the 4-byte prefix itself)
+      // Read content after the 4-byte length prefix
       byte[] content = java.util.Arrays.copyOfRange(data, pos + 4, pos + length);
       
       if (content.length > 0) {
-        // Check if first byte is a band indicator (1, 2, or 3)
         int firstByte = content[0] & 0xFF;
         
         if (firstByte == 1) {
           // Band 1: packfile data
           packfile.write(content, 1, content.length - 1);
-        } else if (firstByte == 2) {
-          // Band 2: progress messages (stderr)
-          // Ignore for now
-        } else if (firstByte == 3) {
-          // Band 3: error messages (stderr)
-          // Ignore for now
-        } else {
-          // Not multiplexed, write as-is
-          packfile.write(content);
         }
+        // Band 2 (progress) and band 3 (error) are ignored.
+        // Non-band pkt-lines (NAK, ACK, etc.) are also ignored - not pack data.
       }
       
       pos += length;
@@ -195,14 +178,23 @@ public class NetworkUtils {
     
     byte[] result = packfile.toByteArray();
     
-    // If we got packfile data, return it
+    // If sideband parsing found pack data, return it
     if (result.length > 0) {
       return result;
     }
     
+    // Fallback: no sideband band-1 data found; scan for raw PACK signature
+    // (handles servers that send pack data without sideband multiplexing)
+    for (int i = 0; i < data.length - 3; i++) {
+      if (data[i] == 'P' && data[i+1] == 'A' &&
+          data[i+2] == 'C' && data[i+3] == 'K') {
+        return java.util.Arrays.copyOfRange(data, i, data.length);
+      }
+    }
+    
     // No packfile found - provide detailed error
     String preview = new String(data, 0, Math.min(data.length, 100), StandardCharsets.UTF_8);
-    throw new IOException("No packfile data found in response (" + data.length + 
+    throw new IOException("No packfile data found in response (" + data.length +
       " bytes). Preview: " + preview.replaceAll("[^\\x20-\\x7E]", "."));
   }
 }

@@ -83,9 +83,10 @@ public class PackfileParser {
     
     // Resolve all objects (may need multiple passes for delta chains)
     Map<String, byte[]> objectData = new HashMap<>();
-    int unresolvedCount;
+    int unresolvedCount = Integer.MAX_VALUE;
+    int newUnresolvedCount;
     do {
-      unresolvedCount = 0;
+      newUnresolvedCount = 0;
       for (PackObject obj : objects) {
         if (!obj.isResolved()) {
           try {
@@ -93,14 +94,19 @@ public class PackfileParser {
           } catch (RuntimeException e) {
             // Base not yet available - will try again in next pass
             if (e.getMessage() != null && e.getMessage().startsWith("Base object not found")) {
-              unresolvedCount++;
+              newUnresolvedCount++;
             } else {
               throw e;
             }
           }
         }
       }
-    } while (unresolvedCount > 0);
+      // Guard against infinite loop: stop if no progress was made
+      if (newUnresolvedCount > 0 && newUnresolvedCount >= unresolvedCount) {
+        break;
+      }
+      unresolvedCount = newUnresolvedCount;
+    } while (newUnresolvedCount > 0);
   }
   
   /**
@@ -133,8 +139,9 @@ public class PackfileParser {
     // Handle different object types
     switch (type) {
       case 6 -> { // OFS_DELTA
-        // Read negative offset
-        long offset = in.read() & 0x7F;
+        // Read negative offset - must read a fresh byte (not the size byte `b`)
+        b = in.read();
+        long offset = b & 0x7F;
         while ((b & 0x80) != 0) {
           b = in.read();
           offset = ((offset + 1) << 7) | (b & 0x7F);
