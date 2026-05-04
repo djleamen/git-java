@@ -59,7 +59,7 @@ public class PackfileParser {
   }
 
   private static void preComputeNonDeltaHashes(List<PackObject> objects,
-      Map<String, PackObject> objectsByHash) throws Exception {
+      Map<String, PackObject> objectsByHash) throws IOException {
     for (PackObject obj : objects) {
       if (obj.getType() >= 1 && obj.getType() <= 4) {
         String typeStr = switch (obj.getType()) {
@@ -74,7 +74,12 @@ public class PackfileParser {
         byte[] fullObject = new byte[headerBytes.length + obj.getData().length];
         System.arraycopy(headerBytes, 0, fullObject, 0, headerBytes.length);
         System.arraycopy(obj.getData(), 0, fullObject, headerBytes.length, obj.getData().length);
-        MessageDigest digest = MessageDigest.getInstance("SHA-1");
+        MessageDigest digest;
+        try {
+          digest = MessageDigest.getInstance("SHA-1");
+        } catch (NoSuchAlgorithmException e) {
+          throw new IOException("SHA-1 algorithm not available", e);
+        }
         byte[] hashBytes = digest.digest(fullObject);
         String hash = GitObjectUtils.bytesToHex(hashBytes);
         obj.setHash(hash);
@@ -83,23 +88,28 @@ public class PackfileParser {
     }
   }
 
+  private static boolean tryResolveObject(PackObject obj, Map<String, byte[]> objectData,
+      File gitDir) throws IOException {
+    try {
+      resolveObject(obj, objectData, gitDir);
+      return true;
+    } catch (IOException e) {
+      if (e.getMessage() != null && e.getMessage().startsWith("Base object not found")) {
+        return false;
+      }
+      throw e;
+    }
+  }
+
   private static void resolveAllObjectsPasses(List<PackObject> objects,
-      Map<String, byte[]> objectData, File gitDir) throws Exception {
+      Map<String, byte[]> objectData, File gitDir) throws IOException {
     int unresolvedCount = Integer.MAX_VALUE;
     int newUnresolvedCount;
     do {
       newUnresolvedCount = 0;
       for (PackObject obj : objects) {
-        if (!obj.isResolved()) {
-          try {
-            resolveObject(obj, objectData, gitDir);
-          } catch (IOException e) {
-            if (e.getMessage() != null && e.getMessage().startsWith("Base object not found")) {
-              newUnresolvedCount++;
-            } else {
-              throw e;
-            }
-          }
+        if (!obj.isResolved() && !tryResolveObject(obj, objectData, gitDir)) {
+          newUnresolvedCount++;
         }
       }
       if (newUnresolvedCount > 0 && newUnresolvedCount >= unresolvedCount) {
@@ -292,44 +302,43 @@ public class PackfileParser {
     obj.setHash(hash);
   }
   
+  private static void applyCopyCommand(int cmd, byte[] baseData, ByteArrayInputStream in,
+      ByteArrayOutputStream out) throws IOException {
+    int offset = 0;
+    int size = 0;
+
+    if ((cmd & 0x01) != 0) offset |= in.read();
+    if ((cmd & 0x02) != 0) offset |= in.read() << 8;
+    if ((cmd & 0x04) != 0) offset |= in.read() << 16;
+    if ((cmd & 0x08) != 0) offset |= in.read() << 24;
+
+    if ((cmd & 0x10) != 0) size |= in.read();
+    if ((cmd & 0x20) != 0) size |= in.read() << 8;
+    if ((cmd & 0x40) != 0) size |= in.read() << 16;
+
+    if (size == 0) size = 0x10000;
+
+    out.write(baseData, offset, size);
+  }
+
   /**
    * Apply delta to base data
    */
   private static byte[] applyDelta(byte[] baseData, byte[] delta) throws IOException {
     ByteArrayInputStream in = new ByteArrayInputStream(delta);
-    
     readVariableLength(in);
     readVariableLength(in);
-
     ByteArrayOutputStream out = new ByteArrayOutputStream();
-    
+
     while (in.available() > 0) {
       int cmd = in.read();
-      
       if ((cmd & 0x80) != 0) {
-        // Copy command
-        int offset = 0;
-        int size = 0;
-        
-        if ((cmd & 0x01) != 0) offset |= in.read();
-        if ((cmd & 0x02) != 0) offset |= in.read() << 8;
-        if ((cmd & 0x04) != 0) offset |= in.read() << 16;
-        if ((cmd & 0x08) != 0) offset |= in.read() << 24;
-        
-        if ((cmd & 0x10) != 0) size |= in.read();
-        if ((cmd & 0x20) != 0) size |= in.read() << 8;
-        if ((cmd & 0x40) != 0) size |= in.read() << 16;
-        
-        if (size == 0) size = 0x10000;
-        
-        out.write(baseData, offset, size);
+        applyCopyCommand(cmd, baseData, in, out);
       } else if (cmd > 0) {
-        // Insert command
-        byte[] newData = in.readNBytes(cmd);
-        out.write(newData);
+        out.write(in.readNBytes(cmd));
       }
     }
-    
+
     return out.toByteArray();
   }
   
