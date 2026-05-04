@@ -11,7 +11,7 @@ import java.util.Map;
 public class CloneCommand implements GitCommand {
   
   @Override
-  public void execute(String[] args) {
+  public void execute(String[] args) throws GitCommandException {
     if (args.length < 3) {
       System.out.println("Usage: clone <url> <directory>");
       return;
