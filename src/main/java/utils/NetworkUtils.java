@@ -31,7 +31,7 @@ public class NetworkUtils {
       // Parse pkt-line format
       String[] lines = response.split("\n");
       for (String line : lines) {
-        if (line.length() < 4 || line.substring(4).startsWith("# service=") || line.substring(4).trim().isEmpty()) {
+        if (line.length() < 4 || line.startsWith("# service=", 4) || line.substring(4).trim().isEmpty()) {
           continue;
         }
         

@@ -277,10 +277,8 @@ public class GitObjectUtils {
     byte[] fileData = loadObjectFromDisk(gitDir, hash);
     if (fileData.length > 0) {
       Files.write(file.toPath(), fileData);
-      if (mode.equals("100755")) {
-        if (!file.setExecutable(true)) {
-          throw new IOException("Failed to set executable permission on: " + file.getPath());
-        }
+      if (mode.equals("100755") && !file.setExecutable(true)) {
+        throw new IOException("Failed to set executable permission on: " + file.getPath());
       }
     }
   }
