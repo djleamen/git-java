@@ -29,7 +29,7 @@ public class CloneCommand implements GitCommand {
     }
   }
   
-  private void cloneRepository(String repoUrl, String targetDir) throws GitCommandException, Exception {
+  private void cloneRepository(String repoUrl, String targetDir) throws Exception {
     // Create target directory
     File dir = new File(targetDir);
     if (!dir.mkdir()) {

@@ -12,7 +12,7 @@ import java.util.zip.DeflaterOutputStream;
 public class CommitTreeCommand implements GitCommand {
   
   @Override
-  public void execute(String[] args) {
+  public void execute(String[] args) throws GitCommandException {
     if (args.length < 6 || !args[2].equals("-p") || !args[4].equals("-m")) {
       System.out.println("Usage: commit-tree <tree_sha> -p <commit_sha> -m <message>");
       return;
@@ -65,7 +65,7 @@ public class CommitTreeCommand implements GitCommand {
       System.out.println(hash);
       
     } catch (IOException | NoSuchAlgorithmException e) {
-      throw new RuntimeException(e);
+      throw new GitCommandException("Failed to write commit object: " + e.getMessage(), e);
     }
   }
 }

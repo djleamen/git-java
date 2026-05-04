@@ -13,7 +13,7 @@ import java.util.zip.DeflaterOutputStream;
 public class HashObjectCommand implements GitCommand {
   
   @Override
-  public void execute(String[] args) {
+  public void execute(String[] args) throws GitCommandException {
     if (args.length < 3 || !args[1].equals("-w")) {
       System.out.println("Usage: hash-object -w <file>");
       return;
@@ -56,7 +56,7 @@ public class HashObjectCommand implements GitCommand {
       System.out.println(hash);
       
     } catch (IOException | NoSuchAlgorithmException e) {
-      throw new RuntimeException(e);
+      throw new GitCommandException("Failed to hash object: " + e.getMessage(), e);
     }
   }
 }
