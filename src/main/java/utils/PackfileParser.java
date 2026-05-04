@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PushbackInputStream;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -25,7 +26,7 @@ public class PackfileParser {
    */
   public static void unpackPackfile(byte[] packfile, File gitDir) throws Exception {
     if (packfile == null || packfile.length < 12) {
-      throw new RuntimeException("Invalid packfile: too short (" +
+      throw new IOException("Invalid packfile: too short (" +
         (packfile == null ? "null" : packfile.length) + " bytes)");
     }
 
@@ -41,16 +42,16 @@ public class PackfileParser {
     preComputeNonDeltaHashes(objects, objectsByHash);
 
     Map<String, byte[]> objectData = new HashMap<>();
-    resolveAllObjectsPasses(objects, objectData, gitDir, objectsByHash);
+    resolveAllObjectsPasses(objects, objectData, gitDir);
   }
 
   private static int readPackHeader(PushbackInputStream in, int packfileLength) throws IOException {
     byte[] header = new byte[12];
     if (in.read(header) != 12) {
-      throw new RuntimeException("Invalid packfile: header too short (got " + packfileLength + " bytes)");
+      throw new IOException("Invalid packfile: header too short (got " + packfileLength + " bytes)");
     }
     if (header[0] != 'P' || header[1] != 'A' || header[2] != 'C' || header[3] != 'K') {
-      throw new RuntimeException("Invalid packfile signature (expected PACK, got: " +
+      throw new IOException("Invalid packfile signature (expected PACK, got: " +
         new String(header, 0, 4) + ")");
     }
     return ((header[8] & 0xFF) << 24) | ((header[9] & 0xFF) << 16) |
@@ -66,7 +67,7 @@ public class PackfileParser {
           case 2 -> "tree";
           case 3 -> "blob";
           case 4 -> "tag";
-          default -> throw new RuntimeException("Unknown object type: " + obj.getType());
+          default -> throw new IOException("Unknown object type: " + obj.getType());
         };
         String objHeader = typeStr + " " + obj.getData().length + "\0";
         byte[] headerBytes = objHeader.getBytes();
@@ -83,8 +84,7 @@ public class PackfileParser {
   }
 
   private static void resolveAllObjectsPasses(List<PackObject> objects,
-      Map<String, byte[]> objectData, File gitDir,
-      Map<String, PackObject> objectsByHash) throws Exception {
+      Map<String, byte[]> objectData, File gitDir) throws Exception {
     int unresolvedCount = Integer.MAX_VALUE;
     int newUnresolvedCount;
     do {
@@ -92,8 +92,8 @@ public class PackfileParser {
       for (PackObject obj : objects) {
         if (!obj.isResolved()) {
           try {
-            resolveObject(obj, objects, objectData, gitDir, objectsByHash);
-          } catch (RuntimeException e) {
+            resolveObject(obj, objectData, gitDir);
+          } catch (IOException e) {
             if (e.getMessage() != null && e.getMessage().startsWith("Base object not found")) {
               newUnresolvedCount++;
             } else {
@@ -151,15 +151,14 @@ public class PackfileParser {
       }
       case 7 -> { // REF_DELTA
         // Read base object SHA
-        byte[] baseHash = new byte[20];
-        in.read(baseHash);
+        byte[] baseHash = in.readNBytes(20);
+        if (baseHash.length != 20) {
+          throw new IOException("Unexpected end of packfile while reading base hash");
+        }
         obj.setBaseHash(GitObjectUtils.bytesToHex(baseHash));
         obj.setData(readCompressedData(in));
       }
-      default -> {
-        // Regular object
-        obj.setData(readCompressedData(in));
-      }
+      default -> obj.setData(readCompressedData(in));
     }
     
     return obj;
@@ -195,8 +194,7 @@ public class PackfileParser {
       
       // Push back unused bytes to the stream (if PushbackInputStream)
       int remaining = inflater.getRemaining();
-      if (remaining > 0 && in instanceof PushbackInputStream) {
-        PushbackInputStream pis = (PushbackInputStream) in;
+      if (remaining > 0 && in instanceof PushbackInputStream pis) {
         int offset = lastInputSize - remaining;
         pis.unread(inputBuffer, offset, remaining);
       }
@@ -213,9 +211,8 @@ public class PackfileParser {
   /**
    * Resolve and store object
    */
-  private static void resolveObject(PackObject obj, List<PackObject> allObjects, 
-                           Map<String, byte[]> objectData, File gitDir,
-                           Map<String, PackObject> objectsByHash) throws Exception {
+  private static void resolveObject(PackObject obj,
+                           Map<String, byte[]> objectData, File gitDir) throws IOException {
     if (obj.isResolved()) return;
     
     byte[] data;
@@ -227,7 +224,7 @@ public class PackfileParser {
       
       if (obj.getType() == 6) {
         // OFS_DELTA - find base by offset
-        throw new RuntimeException("OFS_DELTA not yet implemented");
+        throw new UnsupportedOperationException("OFS_DELTA not yet implemented");
       } else {
         // REF_DELTA - load base by hash
         String baseHash = obj.getBaseHash();
@@ -241,7 +238,7 @@ public class PackfileParser {
         }
         
         if (baseData == null || baseData.length == 0) {
-          throw new RuntimeException("Base object not found: " + baseHash);
+          throw new IOException("Base object not found: " + baseHash);
         }
       }
       
@@ -257,7 +254,7 @@ public class PackfileParser {
         case 2 -> "tree";
         case 3 -> "blob";
         case 4 -> "tag";
-        default -> throw new RuntimeException("Unknown object type: " + obj.getType());
+        default -> throw new IOException("Unknown object type: " + obj.getType());
       };
     }
     
@@ -269,7 +266,12 @@ public class PackfileParser {
     System.arraycopy(data, 0, fullObject, headerBytes.length, data.length);
     
     // Compute hash
-    MessageDigest digest = MessageDigest.getInstance("SHA-1");
+    MessageDigest digest;
+    try {
+      digest = MessageDigest.getInstance("SHA-1");
+    } catch (NoSuchAlgorithmException e) {
+      throw new IOException("SHA-1 algorithm not available", e);
+    }
     byte[] hashBytes = digest.digest(fullObject);
     String hash = GitObjectUtils.bytesToHex(hashBytes);
     
@@ -296,10 +298,9 @@ public class PackfileParser {
   private static byte[] applyDelta(byte[] baseData, byte[] delta) throws IOException {
     ByteArrayInputStream in = new ByteArrayInputStream(delta);
     
-    long srcSize = readVariableLength(in);
-    
-    long tgtSize = readVariableLength(in);
-    
+    readVariableLength(in);
+    readVariableLength(in);
+
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     
     while (in.available() > 0) {
@@ -324,8 +325,7 @@ public class PackfileParser {
         out.write(baseData, offset, size);
       } else if (cmd > 0) {
         // Insert command
-        byte[] newData = new byte[cmd];
-        in.read(newData);
+        byte[] newData = in.readNBytes(cmd);
         out.write(newData);
       }
     }
