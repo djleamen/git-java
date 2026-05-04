@@ -6,11 +6,14 @@
  */
 
 import commands.*;
+import java.util.logging.Logger;
 
 public class Main {
+  private static final Logger LOGGER = Logger.getLogger(Main.class.getName());
+
   public static void main(String[] args) {
     if (args.length == 0) {
-      System.out.println("Usage: java Main <command> [args...]");
+      LOGGER.warning("Usage: java Main <command> [args...]");
       return;
     }
     
@@ -28,7 +31,7 @@ public class Main {
     };
     
     if (gitCommand == null) {
-      System.out.println("Unknown command: " + command);
+      LOGGER.warning("Unknown command: " + command);
       return;
     }
     
