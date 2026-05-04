@@ -6,6 +6,7 @@
  */
 
 import commands.*;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class Main {
@@ -35,6 +36,10 @@ public class Main {
       return;
     }
     
-    gitCommand.execute(args);
+    try {
+      gitCommand.execute(args);
+    } catch (GitCommandException e) {
+      LOGGER.log(Level.SEVERE, e.getMessage(), e);
+    }
   }
 }

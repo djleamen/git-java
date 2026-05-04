@@ -1,5 +1,5 @@
 package commands;
 
 public interface GitCommand {
-  void execute(String[] args);
+  void execute(String[] args) throws GitCommandException;
 }
