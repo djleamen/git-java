@@ -44,7 +44,7 @@ public class CatFileCommand implements GitCommand {
       // Extract everything after the null byte
       byte[] content = Arrays.copyOfRange(decompressed, nullIndex + 1, decompressed.length);
 
-      LOGGER.info(new String(content));
+      System.out.print(new String(content));
     } catch (IOException e) {
       throw new GitCommandException("Failed to read git object: " + hash, e);
     }
