@@ -1,17 +1,14 @@
 package commands;
 
-import utils.GitObjectUtils;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.zip.InflaterInputStream;
 
 public class LsTreeCommand implements GitCommand {
   
   @Override
-  public void execute(String[] args) {
+  public void execute(String[] args) throws GitCommandException {
     if (args.length < 3 || !args[1].equals("--name-only")) {
       System.out.println("Usage: ls-tree --name-only <tree_sha>");
       return;
@@ -20,7 +17,7 @@ public class LsTreeCommand implements GitCommand {
     String hash = args[2];
     String dirName = hash.substring(0, 2);
     String fileName = hash.substring(2);
-    File objectFile = new File(".git/objects/" + dirName + "/" + fileName);
+    File objectFile = new File(".git" + File.separator + "objects" + File.separator + dirName + File.separator + fileName);
     
     try (FileInputStream fis = new FileInputStream(objectFile);
          InflaterInputStream iis = new InflaterInputStream(fis)) {
@@ -37,7 +34,7 @@ public class LsTreeCommand implements GitCommand {
       }
       
       if (nullIndex == -1) {
-        throw new RuntimeException("Invalid object format");
+        throw new GitCommandException("Invalid object format");
       }
       
       // Parse tree entries
@@ -64,7 +61,7 @@ public class LsTreeCommand implements GitCommand {
       }
       
     } catch (IOException e) {
-      throw new RuntimeException(e);
+      throw new GitCommandException("Failed to read tree object: " + e.getMessage(), e);
     }
   }
 }

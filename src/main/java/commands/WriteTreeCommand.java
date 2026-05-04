@@ -9,12 +9,12 @@ import java.security.NoSuchAlgorithmException;
 public class WriteTreeCommand implements GitCommand {
   
   @Override
-  public void execute(String[] args) {
+  public void execute(String[] args) throws GitCommandException {
     try {
       String hash = GitObjectUtils.writeTree(new File("."));
       System.out.println(hash);
     } catch (IOException | NoSuchAlgorithmException e) {
-      throw new RuntimeException(e);
+      throw new GitCommandException("Failed to write tree: " + e.getMessage(), e);
     }
   }
 }
