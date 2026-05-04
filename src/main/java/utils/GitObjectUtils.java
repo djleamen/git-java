@@ -2,7 +2,6 @@ package utils;
 
 import models.TreeEntry;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -18,6 +17,8 @@ import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
 public class GitObjectUtils {
+  
+  private GitObjectUtils() {}
   
   /**
    * Convert bytes to hex string
@@ -69,7 +70,7 @@ public class GitObjectUtils {
     
     File[] files = directory.listFiles();
     if (files == null) {
-      throw new RuntimeException("Cannot read directory: " + directory);
+      throw new IOException("Cannot read directory: " + directory);
     }
     
     for (File file : files) {
@@ -147,9 +148,9 @@ public class GitObjectUtils {
     try {
       String dirName = hash.substring(0, 2);
       String fileName = hash.substring(2);
-      File objectFile = new File(gitDir, "objects/" + dirName + "/" + fileName);
+      File objectFile = new File(gitDir, "objects" + File.separator + dirName + File.separator + fileName);
       
-      if (!objectFile.exists()) return null;
+      if (!objectFile.exists()) return new byte[0];
       
       try (FileInputStream fis = new FileInputStream(objectFile);
            InflaterInputStream iis = new InflaterInputStream(fis)) {
@@ -165,12 +166,12 @@ public class GitObjectUtils {
           }
         }
         
-        if (nullIndex == -1) return null;
+        if (nullIndex == -1) return new byte[0];
         
         return Arrays.copyOfRange(decompressed, nullIndex + 1, decompressed.length);
       }
     } catch (IOException e) {
-      return null;
+      return new byte[0];
     }
   }
   
@@ -192,8 +193,8 @@ public class GitObjectUtils {
   public static void checkoutCommit(File workDir, File gitDir, String commitSha) throws Exception {
     // Read commit object
     byte[] commitData = loadObjectFromDisk(gitDir, commitSha);
-    if (commitData == null) {
-      throw new RuntimeException("Commit not found: " + commitSha);
+    if (commitData.length == 0) {
+      throw new IOException("Commit not found: " + commitSha);
     }
     
     // Parse commit to find tree
@@ -209,7 +210,7 @@ public class GitObjectUtils {
     }
     
     if (treeSha == null) {
-      throw new RuntimeException("No tree found in commit");
+      throw new IOException("No tree found in commit");
     }
     
     // Checkout tree
@@ -221,8 +222,8 @@ public class GitObjectUtils {
    */
   public static void checkoutTree(File workDir, File gitDir, String treeSha, String prefix) throws Exception {
     byte[] treeData = loadObjectFromDisk(gitDir, treeSha);
-    if (treeData == null) {
-      throw new RuntimeException("Tree not found: " + treeSha);
+    if (treeData.length == 0) {
+      throw new IOException("Tree not found: " + treeSha);
     }
     
     // Parse tree entries
@@ -261,10 +262,12 @@ public class GitObjectUtils {
       } else {
         // File
         byte[] fileData = loadObjectFromDisk(gitDir, hash);
-        if (fileData != null) {
+        if (fileData.length > 0) {
           Files.write(file.toPath(), fileData);
           if (mode.equals("100755")) {
-            file.setExecutable(true);
+            if (!file.setExecutable(true)) {
+              throw new IOException("Failed to set executable permission on: " + file.getPath());
+            }
           }
         }
       }
