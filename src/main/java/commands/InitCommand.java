@@ -6,6 +6,10 @@ import java.nio.file.Files;
 
 public class InitCommand implements GitCommand {
   
+  /** 
+   * @param args
+   * @throws GitCommandException
+   */
   @Override
   public void execute(String[] args) throws GitCommandException {
     final File root = new File(".git");

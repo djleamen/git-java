@@ -11,7 +11,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class NetworkUtils {
-  
+
+  private NetworkUtils() {}
+
   /**
    * Discover refs from remote repository
    */
@@ -29,14 +31,12 @@ public class NetworkUtils {
       // Parse pkt-line format
       String[] lines = response.split("\n");
       for (String line : lines) {
-        if (line.length() < 4) continue;
+        if (line.length() < 4 || line.substring(4).startsWith("# service=") || line.substring(4).trim().isEmpty()) {
+          continue;
+        }
         
         // Skip the length prefix (4 hex digits)
         String content = line.substring(4);
-        
-        // Skip service announcement
-        if (content.startsWith("# service=")) continue;
-        if (content.trim().isEmpty()) continue;
         
         // Parse ref line: <sha> <ref>\0<capabilities> or <sha> <ref>
         String[] parts = content.split("\0")[0].trim().split("\\s+");
@@ -123,76 +123,61 @@ public class NetworkUtils {
    * Parse side-band data
    */
   private static byte[] parseSideBandData(byte[] data) throws IOException {
-    // Try parsing pkt-line sideband format first (handles multi-packet responses correctly)
-    ByteArrayOutputStream packfile = new ByteArrayOutputStream();
-    int pos = 0;
-    
-    while (pos < data.length) {
-      if (pos + 4 > data.length) break;
-      
-      // Read pkt-line length
-      String lengthHex = new String(data, pos, 4, StandardCharsets.UTF_8);
-      
-      // Check for flush-pkt
-      if (lengthHex.equals("0000")) {
-        pos += 4;
-        continue;
-      }
-      
-      // Parse length
-      int length;
-      try {
-        length = Integer.parseInt(lengthHex, 16);
-      } catch (NumberFormatException e) {
-        // Not a valid pkt-line (e.g. raw PACK data) - stop pkt-line parsing
-        break;
-      }
-      
-      // Validate length
-      if (length < 4) {
-        pos += 4;
-        continue;
-      }
-      
-      // Check if we have enough data
-      if (pos + length > data.length) {
-        break;
-      }
-      
-      // Read content after the 4-byte length prefix
-      byte[] content = java.util.Arrays.copyOfRange(data, pos + 4, pos + length);
-      
-      if (content.length > 0) {
-        int firstByte = content[0] & 0xFF;
-        
-        if (firstByte == 1) {
-          // Band 1: packfile data
-          packfile.write(content, 1, content.length - 1);
-        }
-        // Band 2 (progress) and band 3 (error) are ignored.
-        // Non-band pkt-lines (NAK, ACK, etc.) are also ignored - not pack data.
-      }
-      
-      pos += length;
-    }
-    
-    byte[] result = packfile.toByteArray();
-    
-    // If sideband parsing found pack data, return it
+    byte[] result = extractPackfileFromSideband(data);
     if (result.length > 0) {
       return result;
     }
-    
-    // Fallback: no sideband band-1 data found; scan for raw PACK signature
-    // (handles servers that send pack data without sideband multiplexing)
+    return findRawPackData(data);
+  }
+
+  /** 
+   * @param lengthHex
+   * @return int
+   */
+  private static int tryParsePktLength(String lengthHex) {
+    try {
+      return Integer.parseInt(lengthHex, 16);
+    } catch (NumberFormatException e) {
+      return -1;
+    }
+  }
+
+  /** 
+   * @param data
+   * @return byte[]
+   */
+  private static byte[] extractPackfileFromSideband(byte[] data) {
+    ByteArrayOutputStream packfile = new ByteArrayOutputStream();
+    int pos = 0;
+    while (pos + 4 <= data.length) {
+      String lengthHex = new String(data, pos, 4, StandardCharsets.UTF_8);
+      int length = tryParsePktLength(lengthHex);
+      if (length < 0 || (length >= 4 && pos + length > data.length)) break;
+      if (length < 4) {
+        pos += 4;
+      } else {
+        byte[] content = java.util.Arrays.copyOfRange(data, pos + 4, pos + length);
+        if (content.length > 0 && (content[0] & 0xFF) == 1) {
+          packfile.write(content, 1, content.length - 1);
+        }
+        pos += length;
+      }
+    }
+    return packfile.toByteArray();
+  }
+
+  /** 
+   * @param data
+   * @return byte[]
+   * @throws IOException
+   */
+  private static byte[] findRawPackData(byte[] data) throws IOException {
     for (int i = 0; i < data.length - 3; i++) {
       if (data[i] == 'P' && data[i+1] == 'A' &&
           data[i+2] == 'C' && data[i+3] == 'K') {
         return java.util.Arrays.copyOfRange(data, i, data.length);
       }
     }
-    
-    // No packfile found - provide detailed error
     String preview = new String(data, 0, Math.min(data.length, 100), StandardCharsets.UTF_8);
     throw new IOException("No packfile data found in response (" + data.length +
       " bytes). Preview: " + preview.replaceAll("[^\\x20-\\x7E]", "."));

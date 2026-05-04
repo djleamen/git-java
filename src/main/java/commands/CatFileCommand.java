@@ -11,6 +11,10 @@ public class CatFileCommand implements GitCommand {
 
   private static final Logger LOGGER = Logger.getLogger(CatFileCommand.class.getName());
 
+  /** 
+   * @param args
+   * @throws GitCommandException
+   */
   @Override
   public void execute(String[] args) throws GitCommandException {
     if (args.length < 3 || !args[1].equals("-p")) {

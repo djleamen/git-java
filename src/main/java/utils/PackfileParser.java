@@ -240,7 +240,7 @@ public class PackfileParser {
           baseData = GitObjectUtils.loadObjectFromDisk(gitDir, baseHash);
         }
         
-        if (baseData == null) {
+        if (baseData == null || baseData.length == 0) {
           throw new RuntimeException("Base object not found: " + baseHash);
         }
       }

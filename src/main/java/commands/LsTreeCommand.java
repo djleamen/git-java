@@ -7,6 +7,10 @@ import java.util.zip.InflaterInputStream;
 
 public class LsTreeCommand implements GitCommand {
   
+  /** 
+   * @param args
+   * @throws GitCommandException
+   */
   @Override
   public void execute(String[] args) throws GitCommandException {
     if (args.length < 3 || !args[1].equals("--name-only")) {

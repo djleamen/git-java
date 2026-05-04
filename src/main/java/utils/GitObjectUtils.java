@@ -266,6 +266,13 @@ public class GitObjectUtils {
     }
   }
 
+  /** 
+   * @param file
+   * @param mode
+   * @param gitDir
+   * @param hash
+   * @throws IOException
+   */
   private static void writeFileEntry(File file, String mode, File gitDir, String hash) throws IOException {
     byte[] fileData = loadObjectFromDisk(gitDir, hash);
     if (fileData.length > 0) {

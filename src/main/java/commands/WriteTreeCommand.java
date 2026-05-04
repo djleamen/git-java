@@ -8,6 +8,10 @@ import java.security.NoSuchAlgorithmException;
 
 public class WriteTreeCommand implements GitCommand {
   
+  /** 
+   * @param args
+   * @throws GitCommandException
+   */
   @Override
   public void execute(String[] args) throws GitCommandException {
     try {

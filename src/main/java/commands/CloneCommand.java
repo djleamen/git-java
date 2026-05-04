@@ -10,6 +10,10 @@ import java.util.Map;
 
 public class CloneCommand implements GitCommand {
   
+  /** 
+   * @param args
+   * @throws GitCommandException
+   */
   @Override
   public void execute(String[] args) throws GitCommandException {
     if (args.length < 3) {
@@ -29,6 +33,11 @@ public class CloneCommand implements GitCommand {
     }
   }
   
+  /** 
+   * @param repoUrl
+   * @param targetDir
+   * @throws Exception
+   */
   private void cloneRepository(String repoUrl, String targetDir) throws Exception {
     // Create target directory
     File dir = new File(targetDir);

@@ -12,6 +12,10 @@ import java.util.zip.DeflaterOutputStream;
 
 public class HashObjectCommand implements GitCommand {
   
+  /** 
+   * @param args
+   * @throws GitCommandException
+   */
   @Override
   public void execute(String[] args) throws GitCommandException {
     if (args.length < 3 || !args[1].equals("-w")) {

@@ -11,18 +11,31 @@ public class TreeEntry implements Comparable<TreeEntry> {
     this.hash = hash;
   }
   
+  /** 
+   * @return String
+   */
   public String getMode() {
     return mode;
   }
   
+  /** 
+   * @return String
+   */
   public String getName() {
     return name;
   }
   
+  /** 
+   * @return String
+   */
   public String getHash() {
     return hash;
   }
   
+  /** 
+   * @param other
+   * @return int
+   */
   @Override
   public int compareTo(TreeEntry other) {
     return this.name.compareTo(other.name);

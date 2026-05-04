@@ -11,6 +11,10 @@ import java.util.zip.DeflaterOutputStream;
 
 public class CommitTreeCommand implements GitCommand {
   
+  /** 
+   * @param args
+   * @throws GitCommandException
+   */
   @Override
   public void execute(String[] args) throws GitCommandException {
     if (args.length < 6 || !args[2].equals("-p") || !args[4].equals("-m")) {
