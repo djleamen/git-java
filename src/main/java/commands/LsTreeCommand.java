@@ -32,6 +32,9 @@ public class LsTreeCommand implements GitCommand {
     }
     
     String hash = args[2];
+    if (hash.length() != 40) {
+      throw new GitCommandException("Invalid object hash: " + hash);
+    }
     String dirName = hash.substring(0, 2);
     String fileName = hash.substring(2);
     File objectFile = new File(".git" + File.separator + "objects" + File.separator + dirName + File.separator + fileName);
